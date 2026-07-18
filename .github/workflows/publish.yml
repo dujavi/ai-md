@@ -16,9 +16,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          # Node 24 ships npm ≥ 11.5 with OIDC trusted publishing support
+          node-version: "24"
           registry-url: https://registry.npmjs.org
+      - name: Skip if version already published
+        id: check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "@dujavi/ai-md@$VERSION" version >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION already on npm — skipping publish"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish
-        run: npm publish --access public --provenance
+        if: steps.check.outputs.already != 'true'
+        run: |
+          # Prefer npm trusted publishing (OIDC). Empty NODE_AUTH_TOKEN from
+          # setup-node's registry-url .npmrc blocks OIDC — clear it unless a
+          # classic NPM_TOKEN secret is configured.
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            unset NODE_AUTH_TOKEN
+          fi
+          npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
