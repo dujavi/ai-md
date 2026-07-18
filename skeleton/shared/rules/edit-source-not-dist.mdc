@@ -1,0 +1,23 @@
+---
+description: Edit ~/.ai-md shared/ and agents/ only — never live harness dirs or dist/
+alwaysApply: true
+---
+
+# Edit source, not dist or live harness paths
+
+`~/.ai-md` is the source of truth. Live tool dirs (`~/.cursor`, `~/.claude`, `~/.agents`, …) and `~/.ai-md/dist/` are **build outputs**.
+
+## Do
+
+- Edit `~/.ai-md/shared/` for rules/skills that apply to all harnesses.
+- Edit `~/.ai-md/agents/<harness>/` for harness-specific rules/skills.
+- After edits: `ai-md build` (or `ai-md pull` / `install`, which rebuild).
+
+## Do not
+
+- Edit `~/.cursor/{rules,skills}`, `~/.claude/…`, `~/.agents/…`, or any other live harness path.
+- Edit `~/.ai-md/dist/` directly.
+
+## If you already edited a live path
+
+Stop. Run `ai-md rescue --agents <harness>` to promote dirty files into `agents/<harness>/`, then review and `ai-md build`. Do not keep iterating under dist or live dirs.

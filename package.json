@@ -1,7 +1,7 @@
 {
   "name": "@dujavi/ai-md",
-  "version": "0.5.0",
-  "description": "AXI-shaped CLI for a private ~/.ai-md: system skills/rules, templates, projects, and private script runner for agent harnesses (Cursor, Claude, agents)",
+  "version": "0.6.0",
+  "description": "AXI-shaped CLI for private ~/.ai-md: shared+agents build to dist, multi-harness link (Cursor, Claude, agents, …)",
   "bin": {
     "ai-md": "bin/ai-md.js"
   },
@@ -9,6 +9,7 @@
     "bin/",
     "lib/",
     "scripts/",
+    "skeleton/",
     "docs/",
     "README.md",
     "LICENSE"
@@ -17,7 +18,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node bin/ai-md.js --help && node bin/ai-md.js status --json >/dev/null"
+    "test": "node bin/ai-md.js --help && node bin/ai-md.js harness list --json >/dev/null && node bin/ai-md.js status --json >/dev/null"
   },
   "dependencies": {
     "@toon-format/toon": "^2.3.1"

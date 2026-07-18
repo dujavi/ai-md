@@ -1,0 +1,49 @@
+---
+description: Sync global personal skills and rules via ~/.ai-md and the ai-md CLI (build → dist → link)
+alwaysApply: true
+---
+
+# Personal skills and rules — ai-md
+
+**`~/.ai-md`** is the private source of truth. Use **`ai-md`** (`@dujavi/ai-md`) — not Cursor Sync / Gist.
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `shared/rules`, `shared/skills` | System base for all harnesses |
+| `agents/<id>/` | Harness-specific overlays |
+| `dist/<id>/` | Build output (gitignored) — do not edit |
+| `templates/<type>/` | Project-type starters |
+| `projects/<name>/` | Per-app overlays |
+| `scripts/` | Private machine scripts |
+
+See also `edit-source-not-dist.mdc` and skill `ai-md-config`.
+
+## Sync
+
+```bash
+ai-md pull
+# edit shared/ or agents/<id>/
+ai-md build
+ai-md push -m "why"
+```
+
+`install` / `pull` / `doctor --fix` rebuild and link **only for installed AIs** (detect `~/.cursor`, `claude` on PATH, etc.). Use `--force-link` to override.
+
+## Where to edit
+
+| What | Edit here |
+|------|-----------|
+| Cross-harness rules/skills | `~/.ai-md/shared/` |
+| Cursor-only (e.g. Grok CLI policy) | `~/.ai-md/agents/cursor/` |
+| Project starters | `~/.ai-md/templates/<type>/` |
+| App overlays | `~/.ai-md/projects/<repo>/` |
+
+Never edit `~/.cursor/skills-cursor/`, live harness dirs, or `dist/`.
+
+## Agent behavior
+
+- Global changes → `shared/` or `agents/<id>/`; remind `ai-md build` then `push`.
+- Symlink / dist issues → `ai-md doctor --fix` or `ai-md rescue`.
+- New harness → `ai-md harness set …` then content under `agents/<id>/`.

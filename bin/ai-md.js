@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 "use strict";
 
-const { spawnSync } = require("child_process");
-const path = require("path");
 const {
   resolveConfig,
   applyEnvFromConfig,
@@ -17,12 +15,22 @@ const {
   applyTemplate,
   linkProject,
   runDoctor,
-  ensureCursorLinks,
-  ensureAgentSkillLinks,
+  runInstall,
+  runPull,
+  runPush,
+  buildAndLink,
+  runBuild,
+  runRescue,
+  seedSkeleton,
+  initRepo,
+  harnessList,
+  harnessShow,
+  harnessSet,
+  harnessUnset,
+  harnessEnable,
 } = require("../lib/commands");
 const { runScript, runScripts } = require("../lib/scripts");
-
-const scriptsDir = path.join(__dirname, "..", "scripts");
+const { defaultLinkMode } = require("../lib/config-paths");
 
 function applyFlag(out, flag, args) {
   switch (flag) {
@@ -41,6 +49,21 @@ function applyFlag(out, flag, args) {
     case "--fix":
       out.fix = true;
       out.force = true;
+      return true;
+    case "--force-link":
+      out.forceLink = true;
+      return true;
+    case "--init":
+      out.init = true;
+      return true;
+    case "--no-git":
+      out.noGit = true;
+      return true;
+    case "--verbose":
+      out.verbose = true;
+      return true;
+    case "--paths-only":
+      out.pathsOnly = true;
       return true;
     case "-m":
     case "--message":
@@ -63,6 +86,18 @@ function applyFlag(out, flag, args) {
       return true;
     case "--dir":
       out.dir = expandHome(args.shift());
+      return true;
+    case "--skills":
+      out.skills = args.shift();
+      return true;
+    case "--rules":
+      out.rules = args.shift();
+      return true;
+    case "--format":
+      out.format = args.shift();
+      return true;
+    case "--link-mode":
+      out.linkMode = args.shift();
       return true;
     case "--agents":
       out.agents = String(args.shift() || "cursor")
@@ -100,6 +135,11 @@ function parseArgs(argv) {
     force: false,
     dryRun: false,
     fix: false,
+    forceLink: false,
+    init: false,
+    noGit: false,
+    verbose: false,
+    pathsOnly: false,
     message: null,
     repo: null,
     name: null,
@@ -107,7 +147,11 @@ function parseArgs(argv) {
     from: "base",
     remote: null,
     dir: null,
-    agents: ["cursor"],
+    skills: null,
+    rules: null,
+    format: null,
+    linkMode: null,
+    agents: null,
     scripts: [],
     scriptName: null,
     scriptArgs: [],
@@ -129,7 +173,6 @@ function parseArgs(argv) {
     out.cmd = args.shift();
   }
 
-  // `script <name> [--] [args...]` — ai-md flags only before the name
   if (out.cmd === "script" || out.cmd === "run-script") {
     while (args.length) {
       const a = args[0];
@@ -144,11 +187,7 @@ function parseArgs(argv) {
       if (a.startsWith("-")) {
         args.shift();
         if (!applyFlag(out, a, args)) {
-          fail(`unknown flag: ${a}`, {
-            exitCode: 2,
-            json: out.json,
-            help: ["Run `ai-md --help`"],
-          });
+          fail(`unknown flag: ${a}`, { exitCode: 2, json: out.json });
           process.exit(2);
         }
         continue;
@@ -157,11 +196,7 @@ function parseArgs(argv) {
       break;
     }
     if (!out.scriptName) {
-      fail("script requires a name", {
-        exitCode: 2,
-        json: out.json,
-        help: ["ai-md script <name> [--] [args...]"],
-      });
+      fail("script requires a name", { exitCode: 2, json: out.json });
       process.exit(2);
     }
     if (args[0] === "--") args.shift();
@@ -175,7 +210,14 @@ function parseArgs(argv) {
       out.scriptArgs = args;
       break;
     }
-    if (a === "set" || a === "show") {
+    if (
+      a === "set" ||
+      a === "show" ||
+      a === "list" ||
+      a === "unset" ||
+      a === "enable" ||
+      a === "disable"
+    ) {
       out.rest.push(a);
       continue;
     }
@@ -196,110 +238,74 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`ai-md — private ~/.ai-md: system skills/rules + templates/ + projects/ (AXI-shaped)
+  process.stdout.write(`ai-md — private ~/.ai-md: shared + agents → dist → live harnesses
 
 Usage:
   ai-md [command] [options]
-  npx -y @dujavi/ai-md [command] [options]
 
-Layout:
-  ~/.ai-md/skills, rules     System (global) base — linked to ~/.cursor
-  ~/.ai-md/templates/<type>  Project-type starters (default: base)
-  ~/.ai-md/projects/<name>   Per-app overlays (repo .cursor → here)
-  ~/.ai-md/scripts/<name>    Private machine scripts (ai-md script / setup --script)
+Layout (source):
+  ~/.ai-md/shared/{rules,skills}   Cross-harness
+  ~/.ai-md/agents/<id>/            Harness overlays
+  ~/.ai-md/dist/<id>/              Build output (gitignored)
+  ~/.ai-md/templates, projects, scripts
 
-Machine config (persisted):
-  ~/.config/ai-md/config.json   dir + remote (override with AI_MD_CONFIG)
-  Precedence: --flag > env > config file > defaults
-
-Supported harnesses (--agents):
-  cursor   ~/.cursor/skills (+ ~/.cursor/rules via install)  [default]
-  claude   ~/.claude/skills
-  agents   ~/.agents/skills
+Unique sync targets: cursor, claude, gemini, opencode, copilot
+Shared ~/.agents/skills: agents (canonical); codex is an alias
 
 Commands:
-  setup              First-time machine setup: save config, install, optional --script
-  config             Show persisted config (or: config set --remote/--dir)
-  status             Snapshot (default when no command) [AXI]
-  doctor             Diagnose links/projects; --fix repairs
-  install            Clone remote if needed; link ~/.cursor + optional agents
-  pull | push        Sync private git repo
-  script             Run ~/.ai-md/scripts/<name> (alias: run-script)
-  init-project       Seed projects/<name> from templates/<from> + link .cursor/
-  apply-template     Merge missing files from a template into a project
-  link-project       Link repo .cursor/ without seeding (alias: link)
-  help               Show this help
+  init               Scaffold skeleton into ~/.ai-md (no remote required)
+  seed-skeleton      Add missing recommended files only
+  setup              Persist config + install (+ optional --init / --script)
+  config             Show config; config set --remote/--dir/--link-mode
+  status             Snapshot (default)
+  doctor             Diagnose; --fix rebuilds + relinks (installed AIs only)
+  build              Merge shared+agents → dist/
+  rescue             Promote dirty dist → agents/<id>/
+  install | pull     Git sync + build + link (skip harnesses not installed)
+  push               Commit + push private repo
+  harness            list | show | set | unset | enable | disable
+  script             Run ~/.ai-md/scripts/<name>
+  init-project       Seed projects/<name> + link .cursor/
+  apply-template | link-project | link
+  help
 
 Options:
-  --remote <url>     Private content git remote (persisted by setup/config set/install)
-  --dir <path>       Local AI_MD_DIR (default ~/.ai-md; persisted same way)
-  --json             JSON instead of TOON
-  --full             Include paths and drift details
-  --agents <list>    Skill link harnesses: cursor,claude,agents (default: cursor)
-  --script <name>    With setup/install: run private script (repeatable)
-  --repo <path>      App repository root
-  --name <id>        Project id under projects/
-  --project <id>     Target project for apply-template
-  --from <id>        Template under templates/ (default: base)
-  --force            Replace non-symlink paths
-  --dry-run          Preview without writing (before script name / before --)
-  --fix             doctor: repair symlinks
-  -m, --message      push commit message
-  --                 End of ai-md options; remaining args go to private scripts
+  --agents <list>    Harnesses (default: config agents or cursor)
+  --force-link       Link even if AI does not look installed
+  --force            Replace real dirs / discard dirty dist on build
+  --link-mode <m>    symlink | junction | copy
+  --dry-run --json --full --verbose
+  --remote --dir --skills --rules --format
+  --script <name>    (repeatable on setup/install)
 
 Examples:
-  ai-md setup --remote https://github.com/<you>/.ai-md.git --script ensure-tools
-  ai-md setup --remote <url> --script ensure-tools -- --dry-run
-  ai-md script ensure-tools
-  ai-md script ensure-tools -- --dry-run
-  ai-md config set --remote https://github.com/<you>/.ai-md.git --dir ~/.ai-md
-  ai-md install --remote https://github.com/<you>/.ai-md.git
-  ai-md doctor --fix --agents cursor,claude
-  ai-md init-project --repo ~/presenter --from base
+  ai-md init
+  ai-md setup --remote https://github.com/<you>/.ai-md.git
+  ai-md build && ai-md doctor --fix
+  ai-md harness set my-tool --skills ~/.my-tool/skills --format md
+  ai-md rescue --agents cursor
 `);
 }
 
-function runBash(script, args, env) {
-  const result = spawnSync("bash", [path.join(scriptsDir, script), ...args], {
-    stdio: "inherit",
-    env,
-  });
-  if (result.error) {
-    fail(result.error.message, { exitCode: 1 });
-    process.exit(1);
-  }
-  process.exit(result.status === null ? 1 : result.status);
+function agentsOrDefault(opts, cfg) {
+  return opts.agents || cfg.agents || ["cursor"];
 }
 
 function persistIfRequested(opts) {
-  if (opts.remote == null && opts.dir == null) return null;
-  return writeMachineConfig(
-    { dir: opts.dir, remote: opts.remote },
-    process.env,
-    { dryRun: opts.dryRun }
-  );
-}
-
-function runInstall(cfg, opts) {
-  const bashArgs = ["install"];
-  if (opts.force) bashArgs.push("--force");
-  if (opts.dryRun) bashArgs.push("--dry-run");
-  const result = spawnSync(
-    "bash",
-    [path.join(scriptsDir, "sync-config.sh"), ...bashArgs],
-    { stdio: "inherit", env: process.env }
-  );
-  if (result.status !== 0) {
-    process.exit(result.status === null ? 1 : result.status);
+  if (
+    opts.remote == null &&
+    opts.dir == null &&
+    opts.linkMode == null &&
+    opts.agents == null
+  ) {
+    return null;
   }
-  const links = [
-    ...ensureCursorLinks(cfg, { force: opts.force, dryRun: opts.dryRun }),
-    ...ensureAgentSkillLinks(cfg, opts.agents, {
-      force: opts.force,
-      dryRun: opts.dryRun,
-    }),
-  ];
-  return links;
+  const patch = {};
+  if (opts.dir != null) patch.dir = opts.dir;
+  if (opts.remote != null) patch.remote = opts.remote;
+  if (opts.linkMode != null) patch.linkMode = opts.linkMode;
+  if (opts.agents != null) patch.agents = opts.agents;
+  return writeMachineConfig(patch, process.env, { dryRun: opts.dryRun });
 }
 
 function main() {
@@ -313,6 +319,7 @@ function main() {
   let cfg = resolveConfig(process.env, {
     dir: opts.dir || undefined,
     remote: opts.remote || undefined,
+    linkMode: opts.linkMode || undefined,
   });
   applyEnvFromConfig(cfg);
 
@@ -321,21 +328,19 @@ function main() {
       case "config": {
         const sub = opts.rest[0] || "show";
         if (sub === "set") {
-          if (opts.remote == null && opts.dir == null) {
-            fail("config set requires --remote and/or --dir", {
+          if (
+            opts.remote == null &&
+            opts.dir == null &&
+            opts.linkMode == null &&
+            opts.agents == null
+          ) {
+            fail("config set requires --remote/--dir/--link-mode/--agents", {
               exitCode: 2,
               json: opts.json,
-              help: [
-                "ai-md config set --remote https://github.com/<you>/.ai-md.git --dir ~/.ai-md",
-              ],
             });
             process.exit(2);
           }
-          const saved = writeMachineConfig(
-            { dir: opts.dir, remote: opts.remote },
-            process.env,
-            { dryRun: opts.dryRun }
-          );
+          const saved = persistIfRequested(opts);
           cfg = resolveConfig(process.env);
           emit({
             data: {
@@ -343,14 +348,13 @@ function main() {
               resolved: {
                 dir: cfg.dir,
                 remote: cfg.remote,
+                linkMode: cfg.linkMode,
+                agents: cfg.agents,
                 sources: cfg.sources,
               },
             },
             json: opts.json,
-            help: [
-              "Run `ai-md install` if ~/.ai-md is not cloned yet",
-              "Run `ai-md setup --remote <url> --script ensure-tools` for first-time bootstrap",
-            ],
+            help: ["Run `ai-md install` or `ai-md init`"],
           });
           break;
         }
@@ -363,22 +367,188 @@ function main() {
             resolved: {
               dir: cfg.dir,
               remote: cfg.remote,
+              linkMode: cfg.linkMode,
+              agents: cfg.agents,
+              defaultLinkMode: defaultLinkMode(),
               sources: cfg.sources,
             },
           },
           json: opts.json,
+          help: ["ai-md config set --remote <url> --dir ~/.ai-md"],
+        });
+        break;
+      }
+      case "init": {
+        const data = initRepo(cfg, {
+          noGit: opts.noGit,
+          force: opts.force,
+          dryRun: opts.dryRun,
+        });
+        writeMachineConfig(
+          { dir: cfg.dir, agents: ["cursor"], linkMode: cfg.linkMode },
+          process.env,
+          { dryRun: opts.dryRun }
+        );
+        cfg = resolveConfig(process.env);
+        let bl = null;
+        if (!opts.dryRun) {
+          bl = buildAndLink(cfg, {
+            agents: ["cursor"],
+            force: true,
+            forceLink: opts.forceLink,
+          });
+        }
+        emit({
+          data: { init: data, buildLink: bl },
+          json: opts.json,
           help: [
-            "ai-md config set --remote <url> --dir ~/.ai-md",
-            "Flags and env override the config file",
+            "Edit shared/ or agents/<id>/",
+            "Later: ai-md config set --remote <url> && git -C ~/.ai-md push -u origin main",
           ],
         });
         break;
       }
+      case "seed-skeleton": {
+        const data = seedSkeleton(cfg, {
+          force: opts.force,
+          dryRun: opts.dryRun,
+        });
+        emit({
+          data,
+          json: opts.json,
+          help: ["Run `ai-md build` after seeding"],
+        });
+        break;
+      }
+      case "build": {
+        const data = runBuild(cfg, {
+          agents: agentsOrDefault(opts, cfg),
+          force: opts.force,
+          dryRun: opts.dryRun,
+          verbose: opts.verbose,
+          forceLink: true,
+          includeUninstalled: true,
+        });
+        emit({
+          data,
+          json: opts.json,
+          help: ["Run `ai-md doctor --fix` to link installed harnesses"],
+        });
+        break;
+      }
+      case "rescue": {
+        const data = runRescue(cfg, {
+          agents: agentsOrDefault(opts, cfg),
+          dryRun: opts.dryRun,
+        });
+        emit({
+          data,
+          json: opts.json,
+          help: ["Review agents/<id>/ then `ai-md build`"],
+        });
+        break;
+      }
+      case "harness": {
+        const sub = opts.rest[0] || "list";
+        const id = opts.rest[1];
+        if (sub === "list") {
+          emit({
+            data: { harnesses: harnessList(cfg) },
+            json: opts.json,
+            help: ["ai-md harness show cursor"],
+          });
+          break;
+        }
+        if (sub === "show") {
+          if (!id) {
+            fail("harness show requires <id>", { exitCode: 2, json: opts.json });
+            process.exit(2);
+          }
+          emit({
+            data: harnessShow(cfg, id),
+            json: opts.json,
+            help: [],
+          });
+          break;
+        }
+        if (sub === "set") {
+          if (!id) {
+            fail("harness set requires <id>", { exitCode: 2, json: opts.json });
+            process.exit(2);
+          }
+          const data = harnessSet(cfg, id, {
+            skills: opts.skills,
+            rules: opts.rules,
+            format: opts.format,
+          });
+          emit({
+            data,
+            json: opts.json,
+            help: [`Put overlays in agents/${id}/`, "ai-md build"],
+          });
+          break;
+        }
+        if (sub === "unset") {
+          if (!id) {
+            fail("harness unset requires <id>", { exitCode: 2, json: opts.json });
+            process.exit(2);
+          }
+          emit({
+            data: harnessUnset(cfg, id, { pathsOnly: opts.pathsOnly }),
+            json: opts.json,
+            help: [],
+          });
+          break;
+        }
+        if (sub === "enable" || sub === "disable") {
+          if (!id) {
+            fail(`harness ${sub} requires <id>`, { exitCode: 2, json: opts.json });
+            process.exit(2);
+          }
+          emit({
+            data: harnessEnable(cfg, id, sub === "enable"),
+            json: opts.json,
+            help: ["ai-md build && ai-md doctor --fix"],
+          });
+          break;
+        }
+        fail(`unknown harness subcommand: ${sub}`, { exitCode: 2, json: opts.json });
+        process.exit(2);
+        break;
+      }
       case "setup": {
+        if (opts.init && !opts.remote) {
+          const data = initRepo(cfg, {
+            noGit: opts.noGit,
+            force: opts.force,
+            dryRun: opts.dryRun,
+          });
+          writeMachineConfig(
+            { dir: cfg.dir, agents: ["cursor"], linkMode: cfg.linkMode },
+            process.env,
+            { dryRun: opts.dryRun }
+          );
+          cfg = resolveConfig(process.env);
+          const bl = opts.dryRun
+            ? null
+            : buildAndLink(cfg, {
+                agents: agentsOrDefault(opts, cfg),
+                force: true,
+                forceLink: opts.forceLink,
+              });
+          emit({
+            data: { setup: "init", init: data, buildLink: bl },
+            json: opts.json,
+            help: [],
+          });
+          break;
+        }
         const saved = writeMachineConfig(
           {
             dir: opts.dir || cfg.dir,
             remote: opts.remote || cfg.remote,
+            agents: opts.agents || cfg.agents,
+            linkMode: opts.linkMode || cfg.linkMode,
           },
           process.env,
           { dryRun: opts.dryRun }
@@ -388,7 +558,13 @@ function main() {
           remote: opts.remote || undefined,
         });
         applyEnvFromConfig(cfg);
-        const links = opts.dryRun ? [] : runInstall(cfg, opts);
+        const result = opts.dryRun
+          ? { build: null, link: null }
+          : runInstall(cfg, {
+              agents: agentsOrDefault(opts, cfg),
+              force: opts.force,
+              forceLink: opts.forceLink,
+            });
         const scripts =
           opts.scripts.length === 0
             ? []
@@ -398,24 +574,13 @@ function main() {
         const failed = scripts.find((s) => s.exitCode !== 0);
         const data = collectStatus({
           full: opts.full,
-          agents: opts.agents,
+          agents: agentsOrDefault(opts, cfg),
           from: opts.from,
         });
         emit({
-          data: {
-            setup: "ok",
-            config: saved,
-            links,
-            scripts,
-            ...data,
-          },
+          data: { setup: "ok", config: saved, ...result, scripts, ...data },
           json: opts.json,
-          help: [
-            opts.scripts.length
-              ? "Run `ai-md status` to verify"
-              : "Run `ai-md script <name>` for private machine scripts (e.g. ensure-tools)",
-            "Run `ai-md init-project --repo <path> --from base` for a new app",
-          ],
+          help: statusHelp(data),
         });
         if (failed) process.exit(failed.exitCode);
         break;
@@ -423,7 +588,7 @@ function main() {
       case "status": {
         const data = collectStatus({
           full: opts.full,
-          agents: opts.agents,
+          agents: agentsOrDefault(opts, cfg),
           from: opts.from,
         });
         emit({ data, json: opts.json, help: statusHelp(data) });
@@ -434,14 +599,11 @@ function main() {
         const data = runDoctor({
           fix: opts.fix,
           force: opts.force,
-          agents: opts.agents,
+          agents: agentsOrDefault(opts, cfg),
           dryRun: opts.dryRun,
+          forceLink: opts.forceLink,
         });
-        emit({
-          data,
-          json: opts.json,
-          help: data.help,
-        });
+        emit({ data, json: opts.json, help: data.help });
         process.exitCode = data.after.problems.length > 0 ? 1 : 0;
         break;
       }
@@ -456,10 +618,7 @@ function main() {
         emit({
           data,
           json: opts.json,
-          help: [
-            "Customize rules/agentic-workflow.mdc for this project",
-            'Run `ai-md push -m "Init <project>"` after reviewing the private repo diff',
-          ],
+          help: ['Run `ai-md push -m "Init <project>"` after review'],
         });
         break;
       }
@@ -469,14 +628,7 @@ function main() {
           from: opts.from,
           dryRun: opts.dryRun,
         });
-        emit({
-          data,
-          json: opts.json,
-          help: [
-            "Review added files under ~/.ai-md/projects/<name>/",
-            'Run `ai-md push -m "Apply template to <project>"` when ready',
-          ],
-        });
+        emit({ data, json: opts.json, help: [] });
         break;
       }
       case "link-project":
@@ -487,13 +639,7 @@ function main() {
           force: opts.force,
           dryRun: opts.dryRun,
         });
-        emit({
-          data,
-          json: opts.json,
-          help: [
-            "Prefer `ai-md init-project --repo <path>` to seed from template first",
-          ],
-        });
+        emit({ data, json: opts.json, help: [] });
         break;
       }
       case "install": {
@@ -505,7 +651,12 @@ function main() {
           });
           applyEnvFromConfig(cfg);
         }
-        const links = runInstall(cfg, opts);
+        const result = runInstall(cfg, {
+          agents: agentsOrDefault(opts, cfg),
+          force: opts.force,
+          dryRun: opts.dryRun,
+          forceLink: opts.forceLink,
+        });
         const scripts =
           opts.scripts.length === 0
             ? []
@@ -513,30 +664,38 @@ function main() {
                 dryRun: opts.dryRun,
               });
         const failed = scripts.find((s) => s.exitCode !== 0);
-        const data = collectStatus({ full: opts.full, agents: opts.agents });
+        const data = collectStatus({
+          full: opts.full,
+          agents: agentsOrDefault(opts, cfg),
+        });
         emit({
-          data: { install: "ok", config: saved, links, scripts, ...data },
+          data: { install: "ok", config: saved, ...result, scripts, ...data },
           json: opts.json,
-          help: [
-            "Run `ai-md script <name>` for private machine scripts",
-            "Run `ai-md init-project --repo <path>` for a new app",
-          ],
+          help: statusHelp(data),
         });
         if (failed) process.exit(failed.exitCode);
         break;
       }
-      case "pull":
-        runBash(
-          "sync-config.sh",
-          ["pull", ...(opts.dryRun ? ["--dry-run"] : [])],
-          process.env
-        );
+      case "pull": {
+        const result = runPull(cfg, {
+          agents: agentsOrDefault(opts, cfg),
+          force: opts.force,
+          dryRun: opts.dryRun,
+          forceLink: opts.forceLink,
+        });
+        emit({
+          data: { pull: "ok", ...result },
+          json: opts.json,
+          help: ["Edit shared/ or agents/<id>/; ai-md push -m \"…\""],
+        });
         break;
+      }
       case "push": {
-        const args = ["push"];
-        if (opts.message) args.push("-m", opts.message);
-        if (opts.dryRun) args.push("--dry-run");
-        runBash("sync-config.sh", args, process.env);
+        const data = runPush(cfg, {
+          message: opts.message,
+          dryRun: opts.dryRun,
+        });
+        emit({ data, json: opts.json, help: [] });
         break;
       }
       case "script":
@@ -547,11 +706,7 @@ function main() {
         emit({
           data: { scripts: [result] },
           json: opts.json,
-          help: [
-            "Scripts live in ~/.ai-md/scripts/ (private content repo)",
-            "ai-md script <name> -- [args...]",
-            "ai-md setup --script <name> -- [args...]",
-          ],
+          help: ["Scripts live in ~/.ai-md/scripts/"],
         });
         process.exit(result.exitCode);
         break;
@@ -566,9 +721,12 @@ function main() {
     }
   } catch (err) {
     fail(err.message || String(err), {
-      exitCode: err.code === "EINVAL" || err.code === "ENOENT" ? 2 : 1,
+      exitCode: err.code === "EINVAL" || err.code === "ENOENT" || err.code === "EEXIST" || err.code === "EDIRTY" ? 2 : 1,
       json: opts.json,
-      help: ["Run `ai-md --help`"],
+      help:
+        err.code === "EDIRTY"
+          ? ["ai-md rescue --agents <id>", "ai-md build --force"]
+          : ["Run `ai-md --help`"],
     });
     process.exit(process.exitCode || 1);
   }

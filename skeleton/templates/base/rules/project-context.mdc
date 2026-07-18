@@ -1,0 +1,8 @@
+---
+description: Project-specific context — customize after init-project
+alwaysApply: true
+---
+
+# Project context
+
+Replace this stub with stack, phase gates, and doc index for this app.
