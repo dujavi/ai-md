@@ -1,0 +1,40 @@
+{
+  "name": "ai-md",
+  "version": "0.1.0",
+  "description": "CLI to sync private ~/.ai-md Cursor skills/rules and install agent tools (grok, quota-axi)",
+  "bin": {
+    "ai-md": "bin/ai-md.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node bin/ai-md.js --help"
+  },
+  "keywords": [
+    "cursor",
+    "ai",
+    "skills",
+    "rules",
+    "quota-axi",
+    "grok",
+    "cli",
+    "axi"
+  ],
+  "author": "dujavi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dujavi/ai-md.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dujavi/ai-md/issues"
+  },
+  "homepage": "https://github.com/dujavi/ai-md#readme"
+}
