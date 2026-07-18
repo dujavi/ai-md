@@ -12,15 +12,15 @@ No personal rules or skills ship in this package.
 ## Install
 
 ```bash
-npm i -g ai-md
+npm i -g @dujavi/ai-md
 # or one-shot:
-npx ai-md --help
+npx @dujavi/ai-md --help
 ```
 
 ## New machine
 
 ```bash
-npm i -g ai-md
+npm i -g @dujavi/ai-md
 export AI_MD_REMOTE=https://github.com/<you>/.ai-md.git   # your private content repo
 ai-md install
 ai-md ensure-tools   # grok + quota-axi
@@ -50,4 +50,4 @@ ai-md link-project --repo ~/my-app
 
 ## Agent-friendly
 
-Non-interactive flags only (`--dry-run`, `--force`, `--fix`, `-m`). No prompts. Prefer `npx -y ai-md <cmd>` when not installed globally.
+Non-interactive flags only (`--dry-run`, `--force`, `--fix`, `-m`). No prompts. Prefer `npx -y @dujavi/ai-md <cmd>` when not installed globally.

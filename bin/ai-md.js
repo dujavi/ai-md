@@ -41,7 +41,7 @@ function printHelp() {
 
 Usage:
   ai-md <command> [options]
-  npx ai-md <command> [options]
+  npx @dujavi/ai-md <command> [options]
 
 Commands:
   install          Clone AI_MD_REMOTE → ~/.ai-md (if needed); link ~/.cursor/{skills,rules}
@@ -58,7 +58,7 @@ Environment:
   AI_MD_REMOTE     Git remote if clone needed (default: https://github.com/dujavi/.ai-md.git)
 
 Examples:
-  npm i -g ai-md
+  npm i -g @dujavi/ai-md
   ai-md install
   ai-md ensure-tools
   ai-md pull

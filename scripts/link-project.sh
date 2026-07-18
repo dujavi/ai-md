@@ -26,7 +26,7 @@ Examples:
   ai-md link-project --repo ~/presenter
   ai-md link-project --repo ~/code/app --name my-app
   ai-md link --repo . --force
-  npx -y ai-md link-project --repo ~/presenter
+  npx -y @dujavi/ai-md link-project --repo ~/presenter
 
 After linking, add .cursor/ to the app repo's .gitignore.
 EOF

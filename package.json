@@ -1,5 +1,5 @@
 {
-  "name": "ai-md",
+  "name": "@dujavi/ai-md",
   "version": "0.1.0",
   "description": "CLI to sync private ~/.ai-md Cursor skills/rules and install agent tools (grok, quota-axi)",
   "bin": {
@@ -36,5 +36,8 @@
   "bugs": {
     "url": "https://github.com/dujavi/ai-md/issues"
   },
-  "homepage": "https://github.com/dujavi/ai-md#readme"
+  "homepage": "https://github.com/dujavi/ai-md#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }

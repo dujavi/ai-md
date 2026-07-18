@@ -40,7 +40,7 @@ Examples:
   ai-md push -m "Add grafana rule"
   ai-md status
   ai-md doctor --fix
-  npx -y ai-md pull
+  npx -y @dujavi/ai-md pull
 EOF
 }
 
