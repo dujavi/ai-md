@@ -10,11 +10,23 @@ Public **AXI-shaped** CLI for a **private** personal AI config directory (`~/.ai
 
 No personal content ships in this package. Reads default to TOON + `help[]` (`--json` available).
 
-## Install
+## New machine
 
 ```bash
 npm i -g @dujavi/ai-md
+ai-md setup --remote https://github.com/<you>/.ai-md.git --tools
+# persists ~/.config/ai-md/config.json then clones + links (+ optional grok/quota-axi)
 ```
+
+Or step by step:
+
+```bash
+ai-md config set --remote https://github.com/<you>/.ai-md.git --dir ~/.ai-md
+ai-md install
+ai-md ensure-tools
+```
+
+Precedence: `--remote`/`--dir` flags > `AI_MD_*` env > `~/.config/ai-md/config.json` > defaults.
 
 ## Layout idea
 
@@ -45,5 +57,5 @@ ai-md ensure-tools
 
 ## Environment
 
-- `AI_MD_DIR` → `~/.ai-md`
-- `AI_MD_REMOTE` → private content git URL
+- `AI_MD_DIR` / `AI_MD_REMOTE` — override for one shot (also set by the CLI after reading config)
+- `AI_MD_CONFIG` — path to machine config JSON (default `~/.config/ai-md/config.json`)

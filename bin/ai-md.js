@@ -3,7 +3,13 @@
 
 const { spawnSync } = require("child_process");
 const path = require("path");
-const { resolveConfig } = require("../lib/config");
+const {
+  resolveConfig,
+  applyEnvFromConfig,
+  writeMachineConfig,
+  readMachineConfig,
+  expandHome,
+} = require("../lib/config");
 const { emit, fail } = require("../lib/output");
 const { collectStatus, statusHelp } = require("../lib/status");
 const {
@@ -16,12 +22,6 @@ const {
 } = require("../lib/commands");
 
 const scriptsDir = path.join(__dirname, "..", "scripts");
-const cfg = resolveConfig();
-
-process.env.AI_MD_DIR = cfg.dir;
-process.env.AI_MD_REMOTE = cfg.remote;
-process.env.CURSOR_MD_DIR = cfg.dir;
-process.env.CURSOR_MD_REMOTE = cfg.remote;
 
 function parseArgs(argv) {
   const out = {
@@ -31,11 +31,14 @@ function parseArgs(argv) {
     force: false,
     dryRun: false,
     fix: false,
+    tools: false,
     message: null,
     repo: null,
     name: null,
     project: null,
     from: "base",
+    remote: null,
+    dir: null,
     agents: ["cursor"],
     rest: [],
   };
@@ -50,7 +53,6 @@ function parseArgs(argv) {
     return out;
   }
   if (first.startsWith("-")) {
-    // flags before command → treat as status with flags
     out.cmd = "status";
   } else {
     out.cmd = args.shift();
@@ -74,6 +76,9 @@ function parseArgs(argv) {
         out.fix = true;
         out.force = true;
         break;
+      case "--tools":
+        out.tools = true;
+        break;
       case "-m":
       case "--message":
         out.message = args.shift();
@@ -90,6 +95,12 @@ function parseArgs(argv) {
       case "--from":
         out.from = args.shift();
         break;
+      case "--remote":
+        out.remote = args.shift();
+        break;
+      case "--dir":
+        out.dir = expandHome(args.shift());
+        break;
       case "--agents":
         out.agents = String(args.shift() || "cursor")
           .split(",")
@@ -99,6 +110,11 @@ function parseArgs(argv) {
       case "-h":
       case "--help":
         out.cmdHelp = true;
+        break;
+      case "set":
+      case "show":
+        // subcommand for `ai-md config set|show`
+        out.rest.push(a);
         break;
       default:
         if (a.startsWith("-")) {
@@ -128,7 +144,13 @@ Layout:
   ~/.ai-md/templates/<type>  Project-type starters (default: base)
   ~/.ai-md/projects/<name>   Per-app overlays (repo .cursor → here)
 
+Machine config (persisted):
+  ~/.config/ai-md/config.json   dir + remote (override with AI_MD_CONFIG)
+  Precedence: --flag > env > config file > defaults
+
 Commands:
+  setup              First-time machine setup: save config, install, optional --tools
+  config             Show persisted config (or: config set --remote/--dir)
   status             Snapshot (default when no command) [AXI]
   doctor             Diagnose links/projects; --fix repairs
   install            Clone remote if needed; link ~/.cursor + optional agents
@@ -140,37 +162,71 @@ Commands:
   help               Show this help
 
 Options:
-  --json             JSON instead of TOON (status/doctor/init/…)
+  --remote <url>     Private content git remote (persisted by setup/config set/install)
+  --dir <path>       Local AI_MD_DIR (default ~/.ai-md; persisted same way)
+  --json             JSON instead of TOON
   --full             Include paths and drift details
   --agents <list>    Skill link targets: cursor,claude,agents (default: cursor)
+  --tools            With setup: also run ensure-tools
   --repo <path>      App repository root
-  --name <id>        Project id under projects/ (default: basename)
+  --name <id>        Project id under projects/
   --project <id>     Target project for apply-template
   --from <id>        Template under templates/ (default: base)
-  --force            Replace non-symlink .cursor / re-merge
+  --force            Replace non-symlink paths
   --dry-run          Preview without writing
   --fix             doctor: repair symlinks
   -m, --message      push commit message
 
 Examples:
-  ai-md
-  ai-md status --json
+  ai-md setup --remote https://github.com/<you>/.ai-md.git --tools
+  ai-md config set --remote https://github.com/<you>/.ai-md.git --dir ~/.ai-md
+  ai-md config
+  ai-md install --remote https://github.com/<you>/.ai-md.git
   ai-md init-project --repo ~/presenter --from base
-  ai-md apply-template --project presenter --from base
-  ai-md doctor --fix --agents cursor,claude
 `);
 }
 
-function runBash(script, args) {
+function runBash(script, args, env) {
   const result = spawnSync("bash", [path.join(scriptsDir, script), ...args], {
     stdio: "inherit",
-    env: process.env,
+    env,
   });
   if (result.error) {
     fail(result.error.message, { exitCode: 1 });
     process.exit(1);
   }
   process.exit(result.status === null ? 1 : result.status);
+}
+
+function persistIfRequested(opts) {
+  if (opts.remote == null && opts.dir == null) return null;
+  return writeMachineConfig(
+    { dir: opts.dir, remote: opts.remote },
+    process.env,
+    { dryRun: opts.dryRun }
+  );
+}
+
+function runInstall(cfg, opts) {
+  const bashArgs = ["install"];
+  if (opts.force) bashArgs.push("--force");
+  if (opts.dryRun) bashArgs.push("--dry-run");
+  const result = spawnSync(
+    "bash",
+    [path.join(scriptsDir, "sync-config.sh"), ...bashArgs],
+    { stdio: "inherit", env: process.env }
+  );
+  if (result.status !== 0) {
+    process.exit(result.status === null ? 1 : result.status);
+  }
+  const links = [
+    ...ensureCursorLinks(cfg, { force: opts.force, dryRun: opts.dryRun }),
+    ...ensureAgentSkillLinks(cfg, opts.agents, {
+      force: opts.force,
+      dryRun: opts.dryRun,
+    }),
+  ];
+  return links;
 }
 
 function main() {
@@ -181,8 +237,116 @@ function main() {
     return;
   }
 
+  // Resolve after flags so --dir/--remote apply
+  let cfg = resolveConfig(process.env, {
+    dir: opts.dir || undefined,
+    remote: opts.remote || undefined,
+  });
+  applyEnvFromConfig(cfg);
+
   try {
     switch (opts.cmd) {
+      case "config": {
+        const sub = opts.rest[0] || "show";
+        if (sub === "set") {
+          if (opts.remote == null && opts.dir == null) {
+            fail("config set requires --remote and/or --dir", {
+              exitCode: 2,
+              json: opts.json,
+              help: [
+                "ai-md config set --remote https://github.com/<you>/.ai-md.git --dir ~/.ai-md",
+              ],
+            });
+            process.exit(2);
+          }
+          const saved = writeMachineConfig(
+            { dir: opts.dir, remote: opts.remote },
+            process.env,
+            { dryRun: opts.dryRun }
+          );
+          cfg = resolveConfig(process.env);
+          emit({
+            data: { ...saved, resolved: { dir: cfg.dir, remote: cfg.remote, sources: cfg.sources } },
+            json: opts.json,
+            help: [
+              "Run `ai-md install` if ~/.ai-md is not cloned yet",
+              "Run `ai-md setup --remote <url> --tools` for first-time machine bootstrap",
+            ],
+          });
+          break;
+        }
+        const stored = readMachineConfig();
+        cfg = resolveConfig(process.env);
+        emit({
+          data: {
+            path: stored.path,
+            stored: stored.raw,
+            resolved: {
+              dir: cfg.dir,
+              remote: cfg.remote,
+              sources: cfg.sources,
+            },
+          },
+          json: opts.json,
+          help: [
+            "ai-md config set --remote <url> --dir ~/.ai-md",
+            "Flags and env override the config file",
+          ],
+        });
+        break;
+      }
+      case "setup": {
+        if (!opts.remote && !cfg.machineConfig?.remote && cfg.sources.remote === "default") {
+          // Allow default for dujavi, but recommend explicit remote for others via help
+        }
+        const saved = writeMachineConfig(
+          {
+            dir: opts.dir || cfg.dir,
+            remote: opts.remote || cfg.remote,
+          },
+          process.env,
+          { dryRun: opts.dryRun }
+        );
+        cfg = resolveConfig(process.env, {
+          dir: opts.dir || undefined,
+          remote: opts.remote || undefined,
+        });
+        applyEnvFromConfig(cfg);
+        const links = opts.dryRun
+          ? []
+          : runInstall(cfg, opts);
+        let tools = null;
+        if (opts.tools && !opts.dryRun) {
+          const tr = spawnSync(
+            "bash",
+            [path.join(scriptsDir, "ensure-agent-tools.sh")],
+            { stdio: "inherit", env: process.env }
+          );
+          tools = { exitCode: tr.status };
+        }
+        const data = collectStatus({
+          full: opts.full,
+          agents: opts.agents,
+          from: opts.from,
+        });
+        emit({
+          data: {
+            setup: "ok",
+            config: saved,
+            links,
+            tools,
+            ...data,
+          },
+          json: opts.json,
+          help: [
+            opts.tools
+              ? "Run `ai-md status` to verify"
+              : "Run `ai-md ensure-tools` (or re-run setup with --tools)",
+            "Run `ai-md init-project --repo <path> --from base` for a new app",
+          ],
+        });
+        break;
+      }
       case "status": {
         const data = collectStatus({
           full: opts.full,
@@ -260,28 +424,18 @@ function main() {
         break;
       }
       case "install": {
-        // clone/pull via bash, then Node links (incl. agents)
-        const bashArgs = ["install"];
-        if (opts.force) bashArgs.push("--force");
-        if (opts.dryRun) bashArgs.push("--dry-run");
-        const result = spawnSync(
-          "bash",
-          [path.join(scriptsDir, "sync-config.sh"), ...bashArgs],
-          { stdio: "inherit", env: process.env }
-        );
-        if (result.status !== 0) {
-          process.exit(result.status === null ? 1 : result.status);
+        const saved = persistIfRequested(opts);
+        if (saved) {
+          cfg = resolveConfig(process.env, {
+            dir: opts.dir || undefined,
+            remote: opts.remote || undefined,
+          });
+          applyEnvFromConfig(cfg);
         }
-        const links = [
-          ...ensureCursorLinks(cfg, { force: opts.force, dryRun: opts.dryRun }),
-          ...ensureAgentSkillLinks(cfg, opts.agents, {
-            force: opts.force,
-            dryRun: opts.dryRun,
-          }),
-        ];
+        const links = runInstall(cfg, opts);
         const data = collectStatus({ full: opts.full, agents: opts.agents });
         emit({
-          data: { install: "ok", links, ...data },
+          data: { install: "ok", config: saved, links, ...data },
           json: opts.json,
           help: [
             "Run `ai-md ensure-tools` to install grok + quota-axi",
@@ -291,23 +445,26 @@ function main() {
         break;
       }
       case "pull":
-        runBash("sync-config.sh", [
-          "pull",
-          ...(opts.dryRun ? ["--dry-run"] : []),
-        ]);
+        runBash(
+          "sync-config.sh",
+          ["pull", ...(opts.dryRun ? ["--dry-run"] : [])],
+          process.env
+        );
         break;
       case "push": {
         const args = ["push"];
         if (opts.message) args.push("-m", opts.message);
         if (opts.dryRun) args.push("--dry-run");
-        runBash("sync-config.sh", args);
+        runBash("sync-config.sh", args, process.env);
         break;
       }
       case "ensure-tools":
       case "tools":
-        runBash("ensure-agent-tools.sh", [
-          ...(opts.dryRun ? ["--dry-run"] : []),
-        ]);
+        runBash(
+          "ensure-agent-tools.sh",
+          [...(opts.dryRun ? ["--dry-run"] : [])],
+          process.env
+        );
         break;
       default:
         fail(`unknown command: ${opts.cmd}`, {
