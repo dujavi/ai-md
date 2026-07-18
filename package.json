@@ -1,7 +1,7 @@
 {
   "name": "@dujavi/ai-md",
-  "version": "0.2.0",
-  "description": "AXI-shaped CLI for private ~/.ai-md skills/rules, project templates, and agent tool bootstrap",
+  "version": "0.3.0",
+  "description": "AXI-shaped CLI for ~/.ai-md system skills/rules, templates/, and projects/",
   "bin": {
     "ai-md": "bin/ai-md.js"
   },

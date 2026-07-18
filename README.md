@@ -1,69 +1,49 @@
 # ai-md
 
-Public **AXI-shaped** CLI for a **private** personal AI config directory (`~/.ai-md`): global skills/rules, per-project templates, and agent tool bootstrap.
+Public **AXI-shaped** CLI for a **private** personal AI config directory (`~/.ai-md`).
 
-| Layer | What | Where |
-|-------|------|--------|
-| **Public** | This package (`@dujavi/ai-md`) | npm + [github.com/dujavi/ai-md](https://github.com/dujavi/ai-md) |
-| **Private** | Your skills, rules, `projects/` | `~/.ai-md` git repo |
+| Layer | Path | Purpose |
+|-------|------|---------|
+| **System** | `skills/`, `rules/` | Global base — linked to `~/.cursor/{skills,rules}` |
+| **Templates** | `templates/<type>/` | Project-type starters (`base`, later `forms`, …) |
+| **Projects** | `projects/<name>/` | Per-app overlays (repo `.cursor` → here) |
 
-No personal rules or skills ship in this package. Output defaults to [TOON](https://toonformat.dev/) with `help[]` next steps (`--json` available).
+No personal content ships in this package. Reads default to TOON + `help[]` (`--json` available).
 
 ## Install
 
 ```bash
 npm i -g @dujavi/ai-md
-# binary: ai-md
 ```
 
-## New machine
+## Layout idea
+
+```text
+~/.ai-md/
+  skills/                 # system — all agents see these
+  rules/
+  templates/
+    base/                 # default project starter (customizable stubs only)
+    # forms/ …            # other use cases
+  projects/
+    presenter/
+    sendfolio/
+```
+
+Put shared agentic skills/rules in **system** folders. Put only type-specific or per-project starters under **templates/**.
+
+## Commands
 
 ```bash
-export AI_MD_REMOTE=https://github.com/<you>/.ai-md.git
-ai-md install
+ai-md                                      # status
+ai-md init-project --repo ~/app --from base
+ai-md apply-template --project app --from base
+ai-md doctor --fix --agents cursor,claude
+ai-md pull | push -m "why"
 ai-md ensure-tools
 ```
-
-Optional multi-agent skill links:
-
-```bash
-ai-md install --agents cursor,claude,agents
-```
-
-## Day-to-day
-
-```bash
-ai-md                    # status (content-first)
-ai-md status --json
-ai-md pull
-ai-md push -m "why"
-ai-md doctor --fix
-```
-
-## Projects (templating)
-
-```bash
-# Seed from projects/template + link repo/.cursor + gitignore
-ai-md init-project --repo ~/my-app
-
-# Merge missing baseline files into an existing project
-ai-md apply-template --project my-app
-
-# Link only (empty rules/skills dirs if missing)
-ai-md link-project --repo ~/my-app
-```
-
-## AXI-shaped reads
-
-| Flag | Effect |
-|------|--------|
-| (default) | TOON on stdout + `help[]` |
-| `--json` | Normalized JSON |
-| `--full` | Paths + template drift details |
-
-Mutations (`push`, `ensure-tools`) stay human/git-oriented.
 
 ## Environment
 
 - `AI_MD_DIR` → `~/.ai-md`
-- `AI_MD_REMOTE` → `https://github.com/dujavi/.ai-md.git`
+- `AI_MD_REMOTE` → private content git URL

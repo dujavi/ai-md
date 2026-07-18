@@ -35,7 +35,7 @@ function parseArgs(argv) {
     repo: null,
     name: null,
     project: null,
-    from: "template",
+    from: "base",
     agents: ["cursor"],
     rest: [],
   };
@@ -117,11 +117,16 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  process.stdout.write(`ai-md — private ~/.ai-md skills/rules + project templates (AXI-shaped)
+  process.stdout.write(`ai-md — private ~/.ai-md: system skills/rules + templates/ + projects/ (AXI-shaped)
 
 Usage:
   ai-md [command] [options]
   npx -y @dujavi/ai-md [command] [options]
+
+Layout:
+  ~/.ai-md/skills, rules     System (global) base — linked to ~/.cursor
+  ~/.ai-md/templates/<type>  Project-type starters (default: base)
+  ~/.ai-md/projects/<name>   Per-app overlays (repo .cursor → here)
 
 Commands:
   status             Snapshot (default when no command) [AXI]
@@ -129,8 +134,8 @@ Commands:
   install            Clone remote if needed; link ~/.cursor + optional agents
   pull | push        Sync private git repo
   ensure-tools       Install/update grok + quota-axi (alias: tools)
-  init-project       Seed projects/<name> from template + link repo .cursor/
-  apply-template     Merge missing template files into an existing project
+  init-project       Seed projects/<name> from templates/<from> + link .cursor/
+  apply-template     Merge missing files from a template into a project
   link-project       Link repo .cursor/ without seeding (alias: link)
   help               Show this help
 
@@ -141,23 +146,18 @@ Options:
   --repo <path>      App repository root
   --name <id>        Project id under projects/ (default: basename)
   --project <id>     Target project for apply-template
-  --from <id>        Template folder (default: template)
+  --from <id>        Template under templates/ (default: base)
   --force            Replace non-symlink .cursor / re-merge
   --dry-run          Preview without writing
   --fix             doctor: repair symlinks
   -m, --message      push commit message
 
-Environment:
-  AI_MD_DIR          Private config dir (default: ~/.ai-md)
-  AI_MD_REMOTE       Clone URL (default: https://github.com/dujavi/.ai-md.git)
-
 Examples:
   ai-md
   ai-md status --json
+  ai-md init-project --repo ~/presenter --from base
+  ai-md apply-template --project presenter --from base
   ai-md doctor --fix --agents cursor,claude
-  ai-md init-project --repo ~/presenter
-  ai-md apply-template --project presenter
-  ai-md push -m "Add rule"
 `);
 }
 
@@ -184,7 +184,11 @@ function main() {
   try {
     switch (opts.cmd) {
       case "status": {
-        const data = collectStatus({ full: opts.full, agents: opts.agents });
+        const data = collectStatus({
+          full: opts.full,
+          agents: opts.agents,
+          from: opts.from,
+        });
         emit({ data, json: opts.json, help: statusHelp(data) });
         process.exitCode = data.counts.problems > 0 ? 1 : 0;
         break;
@@ -225,6 +229,7 @@ function main() {
       case "apply-template": {
         const data = applyTemplate({
           project: opts.project || opts.name,
+          from: opts.from,
           dryRun: opts.dryRun,
         });
         emit({
