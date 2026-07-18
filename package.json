@@ -1,7 +1,7 @@
 {
   "name": "@dujavi/ai-md",
-  "version": "0.4.0",
-  "description": "AXI-shaped CLI for ~/.ai-md with persisted dir/remote machine config, templates/, and projects/",
+  "version": "0.5.0",
+  "description": "AXI-shaped CLI for a private ~/.ai-md: system skills/rules, templates, projects, and private script runner for agent harnesses (Cursor, Claude, agents)",
   "bin": {
     "ai-md": "bin/ai-md.js"
   },
@@ -9,6 +9,7 @@
     "bin/",
     "lib/",
     "scripts/",
+    "docs/",
     "README.md",
     "LICENSE"
   ],
@@ -22,14 +23,16 @@
     "@toon-format/toon": "^2.3.1"
   },
   "keywords": [
+    "axi",
     "cursor",
-    "ai",
+    "claude",
+    "agents",
     "skills",
     "rules",
-    "quota-axi",
-    "grok",
+    "personal-config",
     "cli",
-    "axi"
+    "toon",
+    "ai-md"
   ],
   "author": "dujavi",
   "license": "MIT",

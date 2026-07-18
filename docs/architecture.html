@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>@dujavi/ai-md architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #ffffff;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #111827;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .canvas {
+      width: 1100px;
+      padding: 36px 40px 44px;
+      background: #ffffff;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      text-align: center;
+      margin-bottom: 28px;
+      color: #0f172a;
+    }
+
+    .columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+
+    .column-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0.01em;
+      color: #475569;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .panel {
+      border: 2px solid #1e293b;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 14px 14px 16px;
+      min-height: 280px;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0f172a;
+      text-align: center;
+      margin-bottom: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .box {
+      border: 1.5px solid #334155;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 12px 14px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+      line-height: 1.35;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .box.primary {
+      background: #eff6ff;
+      border-color: #1d4ed8;
+      color: #1e3a8a;
+    }
+
+    .box.system {
+      background: #ecfdf5;
+      border-color: #047857;
+      color: #064e3b;
+    }
+
+    .box.template {
+      background: #fffbeb;
+      border-color: #b45309;
+      color: #78350f;
+    }
+
+    .box.project {
+      background: #fdf2f8;
+      border-color: #be185d;
+      color: #831843;
+    }
+
+    .box.script {
+      background: #f1f5f9;
+      border-color: #475569;
+      color: #1e293b;
+    }
+
+    .box.harness {
+      background: #f5f3ff;
+      border-color: #5b21b6;
+      color: #4c1d95;
+    }
+
+    .flow {
+      position: relative;
+      margin-top: 8px;
+    }
+
+    /* SVG overlay for arrows spanning columns */
+    .arrows {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .diagram {
+      position: relative;
+    }
+
+    .legend {
+      margin-top: 22px;
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #475569;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-line {
+      width: 28px;
+      height: 0;
+      border-top: 2px solid #1e293b;
+      position: relative;
+    }
+
+    .legend-line::after {
+      content: "";
+      position: absolute;
+      right: -1px;
+      top: -4px;
+      border: 4px solid transparent;
+      border-left: 7px solid #1e293b;
+    }
+
+    .footer-note {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 11px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas" id="capture">
+    <h1>@dujavi/ai-md</h1>
+
+    <div class="diagram" id="diagram">
+      <div class="columns" id="columns">
+        <!-- Left: package -->
+        <div class="col" id="col-pkg">
+          <div class="column-label">npm package</div>
+          <div class="panel">
+            <div class="panel-title">@dujavi/ai-md</div>
+            <div class="stack">
+              <div class="box primary" id="box-cli">ai-md CLI</div>
+              <div class="box script" id="box-runner">lib/scripts.js</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center: private dir -->
+        <div class="col" id="col-private">
+          <div class="column-label">private config</div>
+          <div class="panel">
+            <div class="panel-title">~/.ai-md</div>
+            <div class="stack">
+              <div class="box system" id="box-system">skills + rules</div>
+              <div class="box template" id="box-templates">templates/</div>
+              <div class="box project" id="box-projects">projects/</div>
+              <div class="box script" id="box-scripts">scripts/</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: harnesses -->
+        <div class="col" id="col-harness">
+          <div class="column-label">Supported harnesses</div>
+          <div class="panel">
+            <div class="panel-title">Supported harnesses</div>
+            <div class="stack">
+              <div class="box harness" id="box-cursor">cursor ~/.cursor</div>
+              <div class="box harness" id="box-claude">claude ~/.claude</div>
+              <div class="box harness" id="box-agents">agents ~/.agents</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <svg class="arrows" id="arrows" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-line"></span> manages / links</div>
+    </div>
+    <p class="footer-note">Public package tooling · private content in ~/.ai-md · linked into agent harnesses</p>
+  </div>
+
+  <script>
+    function centerOf(el, root) {
+      const r = el.getBoundingClientRect();
+      const b = root.getBoundingClientRect();
+      return {
+        x: r.left - b.left + r.width / 2,
+        y: r.top - b.top + r.height / 2,
+        left: r.left - b.left,
+        right: r.left - b.left + r.width,
+        top: r.top - b.top,
+        bottom: r.top - b.top + r.height,
+        width: r.width,
+        height: r.height,
+      };
+    }
+
+    function draw() {
+      const root = document.getElementById("diagram");
+      const svg = document.getElementById("arrows");
+      const rect = root.getBoundingClientRect();
+      svg.setAttribute("width", rect.width);
+      svg.setAttribute("height", rect.height);
+      svg.style.width = rect.width + "px";
+      svg.style.height = rect.height + "px";
+      svg.innerHTML = "";
+
+      const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      defs.innerHTML = `
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+          markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#1e293b"/>
+        </marker>
+      `;
+      svg.appendChild(defs);
+
+      const cli = centerOf(document.getElementById("box-cli"), root);
+      const runner = centerOf(document.getElementById("box-runner"), root);
+      const system = centerOf(document.getElementById("box-system"), root);
+      const templates = centerOf(document.getElementById("box-templates"), root);
+      const projects = centerOf(document.getElementById("box-projects"), root);
+      const scripts = centerOf(document.getElementById("box-scripts"), root);
+      const cursor = centerOf(document.getElementById("box-cursor"), root);
+      const claude = centerOf(document.getElementById("box-claude"), root);
+      const agents = centerOf(document.getElementById("box-agents"), root);
+
+      function line(x1, y1, x2, y2, opts = {}) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const midX = (x1 + x2) / 2;
+        const d = opts.curve
+          ? `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`
+          : `M ${x1} ${y1} L ${x2} ${y2}`;
+        path.setAttribute("d", d);
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", opts.color || "#1e293b");
+        path.setAttribute("stroke-width", opts.width || "2");
+        path.setAttribute("marker-end", "url(#arrow)");
+        if (opts.dash) path.setAttribute("stroke-dasharray", "5 4");
+        svg.appendChild(path);
+      }
+
+      // CLI → skills+rules, templates, projects
+      line(cli.right, cli.y, system.left, system.y, { curve: true });
+      line(cli.right, cli.y + 2, templates.left, templates.y, { curve: true });
+      line(cli.right, cli.y + 4, projects.left, projects.y, { curve: true });
+
+      // CLI → lib/scripts.js (vertical within left panel)
+      line(cli.x, cli.bottom, runner.x, runner.top, { curve: false });
+
+      // lib/scripts.js → scripts/
+      line(runner.right, runner.y, scripts.left, scripts.y, { curve: true });
+
+      // skills+rules → each harness
+      line(system.right, system.y, cursor.left, cursor.y, { curve: true });
+      line(system.right, system.y + 2, claude.left, claude.y, { curve: true });
+      line(system.right, system.y + 4, agents.left, agents.y, { curve: true });
+    }
+
+    requestAnimationFrame(() => requestAnimationFrame(draw));
+    window.addEventListener("resize", draw);
+  </script>
+</body>
+</html>

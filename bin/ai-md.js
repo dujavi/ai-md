@@ -20,8 +20,77 @@ const {
   ensureCursorLinks,
   ensureAgentSkillLinks,
 } = require("../lib/commands");
+const { runScript, runScripts } = require("../lib/scripts");
 
 const scriptsDir = path.join(__dirname, "..", "scripts");
+
+function applyFlag(out, flag, args) {
+  switch (flag) {
+    case "--json":
+      out.json = true;
+      return true;
+    case "--full":
+      out.full = true;
+      return true;
+    case "--force":
+      out.force = true;
+      return true;
+    case "--dry-run":
+      out.dryRun = true;
+      return true;
+    case "--fix":
+      out.fix = true;
+      out.force = true;
+      return true;
+    case "-m":
+    case "--message":
+      out.message = args.shift();
+      return true;
+    case "--repo":
+      out.repo = args.shift();
+      return true;
+    case "--name":
+      out.name = args.shift();
+      return true;
+    case "--project":
+      out.project = args.shift();
+      return true;
+    case "--from":
+      out.from = args.shift();
+      return true;
+    case "--remote":
+      out.remote = args.shift();
+      return true;
+    case "--dir":
+      out.dir = expandHome(args.shift());
+      return true;
+    case "--agents":
+      out.agents = String(args.shift() || "cursor")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return true;
+    case "--script": {
+      const name = args.shift();
+      if (!name) {
+        fail("--script requires a name", {
+          exitCode: 2,
+          json: out.json,
+          help: ["ai-md setup --script ensure-tools"],
+        });
+        process.exit(2);
+      }
+      out.scripts.push(name);
+      return true;
+    }
+    case "-h":
+    case "--help":
+      out.cmdHelp = true;
+      return true;
+    default:
+      return false;
+  }
+}
 
 function parseArgs(argv) {
   const out = {
@@ -31,7 +100,6 @@ function parseArgs(argv) {
     force: false,
     dryRun: false,
     fix: false,
-    tools: false,
     message: null,
     repo: null,
     name: null,
@@ -40,6 +108,9 @@ function parseArgs(argv) {
     remote: null,
     dir: null,
     agents: ["cursor"],
+    scripts: [],
+    scriptName: null,
+    scriptArgs: [],
     rest: [],
   };
   const args = [...argv];
@@ -57,67 +128,22 @@ function parseArgs(argv) {
   } else {
     out.cmd = args.shift();
   }
-  while (args.length) {
-    const a = args.shift();
-    switch (a) {
-      case "--json":
-        out.json = true;
-        break;
-      case "--full":
-        out.full = true;
-        break;
-      case "--force":
-        out.force = true;
-        break;
-      case "--dry-run":
-        out.dryRun = true;
-        break;
-      case "--fix":
-        out.fix = true;
-        out.force = true;
-        break;
-      case "--tools":
-        out.tools = true;
-        break;
-      case "-m":
-      case "--message":
-        out.message = args.shift();
-        break;
-      case "--repo":
-        out.repo = args.shift();
-        break;
-      case "--name":
-        out.name = args.shift();
-        break;
-      case "--project":
-        out.project = args.shift();
-        break;
-      case "--from":
-        out.from = args.shift();
-        break;
-      case "--remote":
-        out.remote = args.shift();
-        break;
-      case "--dir":
-        out.dir = expandHome(args.shift());
-        break;
-      case "--agents":
-        out.agents = String(args.shift() || "cursor")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-        break;
-      case "-h":
-      case "--help":
-        out.cmdHelp = true;
-        break;
-      case "set":
-      case "show":
-        // subcommand for `ai-md config set|show`
-        out.rest.push(a);
-        break;
-      default:
-        if (a.startsWith("-")) {
+
+  // `script <name> [--] [args...]` — ai-md flags only before the name
+  if (out.cmd === "script" || out.cmd === "run-script") {
+    while (args.length) {
+      const a = args[0];
+      if (a === "--") {
+        fail("script name required before `--`", {
+          exitCode: 2,
+          json: out.json,
+          help: ["ai-md script ensure-tools -- --dry-run"],
+        });
+        process.exit(2);
+      }
+      if (a.startsWith("-")) {
+        args.shift();
+        if (!applyFlag(out, a, args)) {
           fail(`unknown flag: ${a}`, {
             exitCode: 2,
             json: out.json,
@@ -125,9 +151,46 @@ function parseArgs(argv) {
           });
           process.exit(2);
         }
-        out.rest.push(a);
-        break;
+        continue;
+      }
+      out.scriptName = args.shift();
+      break;
     }
+    if (!out.scriptName) {
+      fail("script requires a name", {
+        exitCode: 2,
+        json: out.json,
+        help: ["ai-md script <name> [--] [args...]"],
+      });
+      process.exit(2);
+    }
+    if (args[0] === "--") args.shift();
+    out.scriptArgs = args;
+    return out;
+  }
+
+  while (args.length) {
+    const a = args.shift();
+    if (a === "--") {
+      out.scriptArgs = args;
+      break;
+    }
+    if (a === "set" || a === "show") {
+      out.rest.push(a);
+      continue;
+    }
+    if (a.startsWith("-")) {
+      if (!applyFlag(out, a, args)) {
+        fail(`unknown flag: ${a}`, {
+          exitCode: 2,
+          json: out.json,
+          help: ["Run `ai-md --help`"],
+        });
+        process.exit(2);
+      }
+      continue;
+    }
+    out.rest.push(a);
   }
   return out;
 }
@@ -143,19 +206,25 @@ Layout:
   ~/.ai-md/skills, rules     System (global) base — linked to ~/.cursor
   ~/.ai-md/templates/<type>  Project-type starters (default: base)
   ~/.ai-md/projects/<name>   Per-app overlays (repo .cursor → here)
+  ~/.ai-md/scripts/<name>    Private machine scripts (ai-md script / setup --script)
 
 Machine config (persisted):
   ~/.config/ai-md/config.json   dir + remote (override with AI_MD_CONFIG)
   Precedence: --flag > env > config file > defaults
 
+Supported harnesses (--agents):
+  cursor   ~/.cursor/skills (+ ~/.cursor/rules via install)  [default]
+  claude   ~/.claude/skills
+  agents   ~/.agents/skills
+
 Commands:
-  setup              First-time machine setup: save config, install, optional --tools
+  setup              First-time machine setup: save config, install, optional --script
   config             Show persisted config (or: config set --remote/--dir)
   status             Snapshot (default when no command) [AXI]
   doctor             Diagnose links/projects; --fix repairs
   install            Clone remote if needed; link ~/.cursor + optional agents
   pull | push        Sync private git repo
-  ensure-tools       Install/update grok + quota-axi (alias: tools)
+  script             Run ~/.ai-md/scripts/<name> (alias: run-script)
   init-project       Seed projects/<name> from templates/<from> + link .cursor/
   apply-template     Merge missing files from a template into a project
   link-project       Link repo .cursor/ without seeding (alias: link)
@@ -166,22 +235,26 @@ Options:
   --dir <path>       Local AI_MD_DIR (default ~/.ai-md; persisted same way)
   --json             JSON instead of TOON
   --full             Include paths and drift details
-  --agents <list>    Skill link targets: cursor,claude,agents (default: cursor)
-  --tools            With setup: also run ensure-tools
+  --agents <list>    Skill link harnesses: cursor,claude,agents (default: cursor)
+  --script <name>    With setup/install: run private script (repeatable)
   --repo <path>      App repository root
   --name <id>        Project id under projects/
   --project <id>     Target project for apply-template
   --from <id>        Template under templates/ (default: base)
   --force            Replace non-symlink paths
-  --dry-run          Preview without writing
+  --dry-run          Preview without writing (before script name / before --)
   --fix             doctor: repair symlinks
   -m, --message      push commit message
+  --                 End of ai-md options; remaining args go to private scripts
 
 Examples:
-  ai-md setup --remote https://github.com/<you>/.ai-md.git --tools
+  ai-md setup --remote https://github.com/<you>/.ai-md.git --script ensure-tools
+  ai-md setup --remote <url> --script ensure-tools -- --dry-run
+  ai-md script ensure-tools
+  ai-md script ensure-tools -- --dry-run
   ai-md config set --remote https://github.com/<you>/.ai-md.git --dir ~/.ai-md
-  ai-md config
   ai-md install --remote https://github.com/<you>/.ai-md.git
+  ai-md doctor --fix --agents cursor,claude
   ai-md init-project --repo ~/presenter --from base
 `);
 }
@@ -237,7 +310,6 @@ function main() {
     return;
   }
 
-  // Resolve after flags so --dir/--remote apply
   let cfg = resolveConfig(process.env, {
     dir: opts.dir || undefined,
     remote: opts.remote || undefined,
@@ -266,11 +338,18 @@ function main() {
           );
           cfg = resolveConfig(process.env);
           emit({
-            data: { ...saved, resolved: { dir: cfg.dir, remote: cfg.remote, sources: cfg.sources } },
+            data: {
+              ...saved,
+              resolved: {
+                dir: cfg.dir,
+                remote: cfg.remote,
+                sources: cfg.sources,
+              },
+            },
             json: opts.json,
             help: [
               "Run `ai-md install` if ~/.ai-md is not cloned yet",
-              "Run `ai-md setup --remote <url> --tools` for first-time machine bootstrap",
+              "Run `ai-md setup --remote <url> --script ensure-tools` for first-time bootstrap",
             ],
           });
           break;
@@ -296,9 +375,6 @@ function main() {
         break;
       }
       case "setup": {
-        if (!opts.remote && !cfg.machineConfig?.remote && cfg.sources.remote === "default") {
-          // Allow default for dujavi, but recommend explicit remote for others via help
-        }
         const saved = writeMachineConfig(
           {
             dir: opts.dir || cfg.dir,
@@ -312,18 +388,14 @@ function main() {
           remote: opts.remote || undefined,
         });
         applyEnvFromConfig(cfg);
-        const links = opts.dryRun
-          ? []
-          : runInstall(cfg, opts);
-        let tools = null;
-        if (opts.tools && !opts.dryRun) {
-          const tr = spawnSync(
-            "bash",
-            [path.join(scriptsDir, "ensure-agent-tools.sh")],
-            { stdio: "inherit", env: process.env }
-          );
-          tools = { exitCode: tr.status };
-        }
+        const links = opts.dryRun ? [] : runInstall(cfg, opts);
+        const scripts =
+          opts.scripts.length === 0
+            ? []
+            : runScripts(cfg, opts.scripts, opts.scriptArgs, {
+                dryRun: opts.dryRun,
+              });
+        const failed = scripts.find((s) => s.exitCode !== 0);
         const data = collectStatus({
           full: opts.full,
           agents: opts.agents,
@@ -334,17 +406,18 @@ function main() {
             setup: "ok",
             config: saved,
             links,
-            tools,
+            scripts,
             ...data,
           },
           json: opts.json,
           help: [
-            opts.tools
+            opts.scripts.length
               ? "Run `ai-md status` to verify"
-              : "Run `ai-md ensure-tools` (or re-run setup with --tools)",
+              : "Run `ai-md script <name>` for private machine scripts (e.g. ensure-tools)",
             "Run `ai-md init-project --repo <path> --from base` for a new app",
           ],
         });
+        if (failed) process.exit(failed.exitCode);
         break;
       }
       case "status": {
@@ -433,15 +506,23 @@ function main() {
           applyEnvFromConfig(cfg);
         }
         const links = runInstall(cfg, opts);
+        const scripts =
+          opts.scripts.length === 0
+            ? []
+            : runScripts(cfg, opts.scripts, opts.scriptArgs, {
+                dryRun: opts.dryRun,
+              });
+        const failed = scripts.find((s) => s.exitCode !== 0);
         const data = collectStatus({ full: opts.full, agents: opts.agents });
         emit({
-          data: { install: "ok", config: saved, links, ...data },
+          data: { install: "ok", config: saved, links, scripts, ...data },
           json: opts.json,
           help: [
-            "Run `ai-md ensure-tools` to install grok + quota-axi",
+            "Run `ai-md script <name>` for private machine scripts",
             "Run `ai-md init-project --repo <path>` for a new app",
           ],
         });
+        if (failed) process.exit(failed.exitCode);
         break;
       }
       case "pull":
@@ -458,14 +539,23 @@ function main() {
         runBash("sync-config.sh", args, process.env);
         break;
       }
-      case "ensure-tools":
-      case "tools":
-        runBash(
-          "ensure-agent-tools.sh",
-          [...(opts.dryRun ? ["--dry-run"] : [])],
-          process.env
-        );
+      case "script":
+      case "run-script": {
+        const result = runScript(cfg, opts.scriptName, opts.scriptArgs, {
+          dryRun: opts.dryRun,
+        });
+        emit({
+          data: { scripts: [result] },
+          json: opts.json,
+          help: [
+            "Scripts live in ~/.ai-md/scripts/ (private content repo)",
+            "ai-md script <name> -- [args...]",
+            "ai-md setup --script <name> -- [args...]",
+          ],
+        });
+        process.exit(result.exitCode);
         break;
+      }
       default:
         fail(`unknown command: ${opts.cmd}`, {
           exitCode: 2,
@@ -476,7 +566,7 @@ function main() {
     }
   } catch (err) {
     fail(err.message || String(err), {
-      exitCode: err.code === "EINVAL" ? 2 : 1,
+      exitCode: err.code === "EINVAL" || err.code === "ENOENT" ? 2 : 1,
       json: opts.json,
       help: ["Run `ai-md --help`"],
     });

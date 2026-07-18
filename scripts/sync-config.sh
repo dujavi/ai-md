@@ -22,7 +22,7 @@ Commands:
   status    Show repo state, symlink health, and rule/skill counts
   doctor    Diagnose problems; with --fix, repair symlinks
 
-Also: ai-md ensure-tools  (grok + quota-axi)
+Private scripts: ai-md script <name>  (from ~/.ai-md/scripts/)
 
 Options:
   -m, --message <msg>  Commit message for push (default: generic update)
@@ -146,7 +146,7 @@ cmd_install() {
   log "Install complete."
   log "  rules:  $(count_rules)"
   log "  skills: $(count_skills)"
-  log "Next: ai-md ensure-tools  # grok + quota-axi"
+  log "Next: ai-md script <name>  # private ~/.ai-md/scripts/"
 }
 
 cmd_pull() {
