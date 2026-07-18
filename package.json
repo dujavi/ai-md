@@ -1,12 +1,13 @@
 {
   "name": "@dujavi/ai-md",
-  "version": "0.1.0",
-  "description": "CLI to sync private ~/.ai-md Cursor skills/rules and install agent tools (grok, quota-axi)",
+  "version": "0.2.0",
+  "description": "AXI-shaped CLI for private ~/.ai-md skills/rules, project templates, and agent tool bootstrap",
   "bin": {
     "ai-md": "bin/ai-md.js"
   },
   "files": [
     "bin/",
+    "lib/",
     "scripts/",
     "README.md",
     "LICENSE"
@@ -15,7 +16,10 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node bin/ai-md.js --help"
+    "test": "node bin/ai-md.js --help && node bin/ai-md.js status --json >/dev/null"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.3.1"
   },
   "keywords": [
     "cursor",
