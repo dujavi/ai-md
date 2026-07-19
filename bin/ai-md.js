@@ -21,6 +21,7 @@ const {
   buildAndLink,
   runBuild,
   runRescue,
+  bootstrapContent,
   seedSkeleton,
   initRepo,
   harnessList,
@@ -253,9 +254,9 @@ Unique sync targets: cursor, claude, gemini, opencode, copilot
 Shared ~/.agents/skills: agents (canonical); codex is an alias
 
 Commands:
-  init               Scaffold skeleton into ~/.ai-md (no remote required)
+  init               Bootstrap ~/.ai-md (clone if remote known, else skeleton)
   seed-skeleton      Add missing recommended files only
-  setup              Persist config + install (+ optional --init / --script)
+  setup              Clone/sync if remote known; --init for skeleton; --script
   config             Show config; config set --remote/--dir/--link-mode
   status             Snapshot (default)
   doctor             Diagnose; --fix rebuilds + relinks (installed AIs only)
@@ -371,6 +372,7 @@ function main() {
               agents: cfg.agents,
               defaultLinkMode: defaultLinkMode(),
               sources: cfg.sources,
+              remoteDetection: cfg.remoteDetection,
             },
           },
           json: opts.json,
@@ -379,32 +381,30 @@ function main() {
         break;
       }
       case "init": {
-        const data = initRepo(cfg, {
+        const data = bootstrapContent(cfg, {
           noGit: opts.noGit,
           force: opts.force,
           dryRun: opts.dryRun,
+          forceLink: opts.forceLink,
+          agents: agentsOrDefault(opts, cfg),
         });
-        writeMachineConfig(
-          { dir: cfg.dir, agents: ["cursor"], linkMode: cfg.linkMode },
-          process.env,
-          { dryRun: opts.dryRun }
-        );
-        cfg = resolveConfig(process.env);
-        let bl = null;
-        if (!opts.dryRun) {
-          bl = buildAndLink(cfg, {
-            agents: ["cursor"],
-            force: true,
-            forceLink: opts.forceLink,
-          });
-        }
+        const help =
+          data.action === "cloned" ||
+          data.action === "synced" ||
+          data.action === "would_clone" ||
+          data.action === "would_replace_and_clone"
+            ? [
+                `Synced from ${data.remote || cfg.remote}`,
+                "Edit shared/ or agents/<id>/; then ai-md build && ai-md push -m \"…\"",
+              ]
+            : [
+                "Skeleton created (no remote).",
+                "Connect later: ai-md setup --remote https://github.com/<you>/.ai-md.git",
+              ];
         emit({
-          data: { init: data, buildLink: bl },
+          data: { init: data },
           json: opts.json,
-          help: [
-            "Edit shared/ or agents/<id>/",
-            "Later: ai-md config set --remote <url> && git -C ~/.ai-md push -u origin main",
-          ],
+          help,
         });
         break;
       }
@@ -517,54 +517,63 @@ function main() {
         break;
       }
       case "setup": {
-        if (opts.init && !opts.remote) {
-          const data = initRepo(cfg, {
+        const remoteCfg = resolveConfig(process.env, {
+          dir: opts.dir || undefined,
+          remote: opts.remote || undefined,
+        });
+        const remote = opts.remote || remoteCfg.remote || null;
+
+        // Explicit skeleton path only when no remote is known
+        if (opts.init && !remote) {
+          const data = bootstrapContent(remoteCfg, {
             noGit: opts.noGit,
             force: opts.force,
             dryRun: opts.dryRun,
+            forceLink: opts.forceLink,
+            agents: agentsOrDefault(opts, remoteCfg),
           });
-          writeMachineConfig(
-            { dir: cfg.dir, agents: ["cursor"], linkMode: cfg.linkMode },
-            process.env,
-            { dryRun: opts.dryRun }
-          );
-          cfg = resolveConfig(process.env);
-          const bl = opts.dryRun
-            ? null
-            : buildAndLink(cfg, {
-                agents: agentsOrDefault(opts, cfg),
-                force: true,
-                forceLink: opts.forceLink,
-              });
           emit({
-            data: { setup: "init", init: data, buildLink: bl },
+            data: { setup: "init", ...data },
             json: opts.json,
             help: [],
           });
           break;
         }
+
+        if (!remote) {
+          fail(
+            "setup needs a remote (or --init for local skeleton).\n" +
+              "  ai-md setup --remote https://github.com/<you>/.ai-md.git\n" +
+              "  ai-md init\n" +
+              "  (auto-detect: authenticate `gh` and create github.com/<user>/.ai-md)",
+            { exitCode: 2, json: opts.json }
+          );
+          process.exit(2);
+        }
+
+        // Remote known → clone/sync first; never seed skeleton before sync
         const saved = writeMachineConfig(
           {
-            dir: opts.dir || cfg.dir,
-            remote: opts.remote || cfg.remote,
-            agents: opts.agents || cfg.agents,
-            linkMode: opts.linkMode || cfg.linkMode,
+            dir: opts.dir || remoteCfg.dir,
+            remote,
+            agents: opts.agents || remoteCfg.agents,
+            linkMode: opts.linkMode || remoteCfg.linkMode,
           },
           process.env,
           { dryRun: opts.dryRun }
         );
         cfg = resolveConfig(process.env, {
           dir: opts.dir || undefined,
-          remote: opts.remote || undefined,
+          remote,
+          skipRemoteDetect: true,
         });
         applyEnvFromConfig(cfg);
-        const result = opts.dryRun
-          ? { build: null, link: null }
-          : runInstall(cfg, {
-              agents: agentsOrDefault(opts, cfg),
-              force: opts.force,
-              forceLink: opts.forceLink,
-            });
+        const result = bootstrapContent(cfg, {
+          force: opts.force,
+          dryRun: opts.dryRun,
+          forceLink: opts.forceLink,
+          agents: agentsOrDefault(opts, cfg),
+        });
         const scripts =
           opts.scripts.length === 0
             ? []
@@ -578,7 +587,7 @@ function main() {
           from: opts.from,
         });
         emit({
-          data: { setup: "ok", config: saved, ...result, scripts, ...data },
+          data: { setup: "ok", config: saved, result, scripts, ...data },
           json: opts.json,
           help: statusHelp(data),
         });

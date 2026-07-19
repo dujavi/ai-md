@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO="${AI_MD_DIR:-${CURSOR_MD_DIR:-$HOME/.ai-md}}"
-REMOTE_URL="${AI_MD_REMOTE:-${CURSOR_MD_REMOTE:-https://github.com/dujavi/.ai-md.git}}"
+REMOTE_URL="${AI_MD_REMOTE:-${CURSOR_MD_REMOTE:-}}"
 DRY_RUN=0
 FORCE=0
 COMMIT_MSG="Update personal AI skills/rules"
@@ -32,10 +32,10 @@ Options:
 
 Environment:
   AI_MD_DIR     Private config path (default: ~/.ai-md)
-  AI_MD_REMOTE  Clone URL if repo missing (default: https://github.com/dujavi/.ai-md.git)
+  AI_MD_REMOTE  Clone URL if repo missing (required for install clone; no hardcoded default)
 
 Examples:
-  ai-md install
+  AI_MD_REMOTE=https://github.com/<you>/.ai-md.git ai-md install
   ai-md pull
   ai-md push -m "Add grafana rule"
   ai-md status
@@ -82,6 +82,13 @@ clone_if_missing() {
   fi
   if [[ -d "$REPO" ]] && [[ -n "$(ls -A "$REPO" 2>/dev/null || true)" ]]; then
     err "$REPO exists but is not a git repo (and is not empty)"
+    err "  Move it aside, then clone — do not seed a skeleton over an unsynced remote tree"
+    exit 1
+  fi
+  if [[ -z "$REMOTE_URL" ]]; then
+    err "No remote set and $REPO is missing/empty."
+    err "  export AI_MD_REMOTE=https://github.com/<you>/.ai-md.git"
+    err "  or: ai-md setup --remote <url>   /   ai-md init"
     exit 1
   fi
   log "Cloning $REMOTE_URL → $REPO"

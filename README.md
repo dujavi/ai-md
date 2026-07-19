@@ -33,11 +33,15 @@ Cursor / Gemini / OpenCode may *also read* `~/.agents/skills`; enabling `agents`
 ```bash
 npm i -g @dujavi/ai-md
 
-# A) No private remote yet
+# A) Existing private git repo (clone/sync first — never skeleton-before-sync)
+ai-md setup --remote https://github.com/<you>/.ai-md.git
+
+# B) No remote yet → local skeleton only
 ai-md init
 
-# B) Existing private git repo
-ai-md setup --remote https://github.com/<you>/.ai-md.git
+# C) Optional auto-detect: if `gh` (or git github.user) identifies you
+#    AND github.com/<user>/.ai-md exists, init/setup use that remote.
+#    There is no hardcoded default remote.
 
 ai-md pull
 # edit shared/ or agents/<id>/ only
